@@ -2,19 +2,23 @@
 
 module Control.SF.AuxFunctions (
     SEvent, Time, DeltaT, 
+    ArrowTime, time, 
+    constA, constSF,
     edge, 
     accum, unique, 
     hold, now, 
-    mergeE, 
+    mergeE, (~++), 
+    concatA, foldA, foldSF,
     delay, vdelay, fdelay, 
     vdelayC, fdelayC, 
     timer, genEvents, 
-    BufferControl (..), eventBuffer, 
+    BufferEvent (..), BufferControl, eventBuffer, 
     
-    (=>>), (->>), (.|.),
-    snapshot, snapshot_,
+    (=>>), (->>), (.|.), 
+    snapshot, snapshot_, 
 
     toMSF, toRealTimeMSF, 
+    async, 
     quantize, presentFFT, fftA
 ) where
 
@@ -63,10 +67,21 @@ type SEvent = Maybe
 -- | DeltaT is a type synonym referring to a change in Time.
 type DeltaT = Double
 
+-- | Instances of this class have arrowized access to the time
+class ArrowTime a where
+    time :: a () Time
 
 --------------------------------------
 -- Useful SF Utilities (Mediators)
 --------------------------------------
+
+-- | constA is an arrowized version of const
+constA  :: Arrow a => c -> a b c
+constA = arr . const
+
+-- | constSF is a convenience
+constSF :: Arrow a => b -> a b d -> a c d
+constSF s sf = constA s >>> sf
 
 -- | edge generates an event whenever the Boolean input signal changes
 --   from False to True -- in signal processing this is called an ``edge
@@ -108,6 +123,10 @@ mergeE _       le@(Just _) Nothing     = le
 mergeE _       Nothing     re@(Just _) = re
 mergeE resolve (Just l)    (Just r)    = Just (resolve l r)
 
+-- | A nice infix operator for merging event lists
+(~++) :: SEvent [a] -> SEvent [a] -> SEvent [a]
+(~++) = mergeE (++)
+
 -- | Returns n samples of type b from the input stream at a time, 
 --   updating after k samples.  This function is good for chunking 
 --   data and is a critical component to fftA
@@ -116,6 +135,31 @@ quantize n k = proc d -> do
     rec (ds,c) <- init ([],0) -< (take n (d:ds), c+1)
     returnA -< if c >= n && c `mod` k == 0 then Just ds else Nothing
 
+concatA :: Arrow a => [a b c] -> a [b] [c]
+concatA [] = arr $ const []
+concatA (sf:sfs) = proc (b:bs) -> do
+    c <- sf -< b
+    cs <- concatA sfs -< bs
+    returnA -< (c:cs)
+
+foldA :: ArrowChoice a => (c -> d -> d) -> d -> a b c -> a [b] d
+foldA merge i sf = h where 
+  h = proc inp -> case inp of
+    [] -> returnA -< i
+    b:bs -> do
+        c <- sf -< b
+        d <- h  -< bs
+        returnA -< merge c d
+
+-- | For folding results of a list of signal functions
+foldSF ::  Arrow a => (b -> c -> c) -> c -> [a () b] -> a () c
+foldSF f b sfs =
+  foldr g (constA b) sfs where
+    g sfa sfb =
+      proc () -> do
+        s1  <- sfa -< ()
+        s2  <- sfb -< ()
+        returnA -< f s1 s2
 
 --------------------------------------
 -- Delays and Timers
@@ -136,8 +180,9 @@ delay = init
 --   if events are too densely packed in the signal (compared to the 
 --   clock rate of the underlying arrow), then some events may be 
 --   over delayed.
-fdelay :: ArrowInit a => DeltaT -> a (Time, SEvent b) (SEvent b)
-fdelay d = proc (t, e) -> do
+fdelay :: (ArrowTime a, ArrowInit a) => DeltaT -> a (SEvent b) (SEvent b)
+fdelay d = proc e -> do
+    t <- time -< ()
     rec q <- init empty -< maybe q' (\e' -> q' |> (t+d,e')) e
         let (ret, q') = case viewl q of
                 EmptyL -> (Nothing, q)
@@ -151,8 +196,9 @@ fdelay d = proc (t, e) -> do
 --   same as the order of events out and that no event will be skipped.  
 --   If the events are too dense or the delay argument drops too quickly, 
 --   some events may be over delayed.
-vdelay :: ArrowInit a => a (Time, DeltaT, SEvent b) (SEvent b)
-vdelay = proc (t, d, e) -> do
+vdelay :: (ArrowTime a, ArrowInit a) => a (DeltaT, SEvent b) (SEvent b)
+vdelay = proc (d, e) -> do
+    t <- time -< ()
     rec q <- init empty -< maybe q' (\e' -> q' |> (t,e')) e
         let (ret, q') = case viewl q of 
                 EmptyL -> (Nothing, q)
@@ -164,8 +210,9 @@ vdelay = proc (t, d, e) -> do
 --   be accurate, but some data may be ommitted entirely.  As such, it is 
 --   not advisable to use fdelayC for event streams where every event must 
 --   be processed (that's what fdelay is for).
-fdelayC :: ArrowInit a => b -> DeltaT -> a (Time, b) b
-fdelayC i dt = proc (t, v) -> do
+fdelayC :: (ArrowTime a, ArrowInit a) => b -> DeltaT -> a b b
+fdelayC i dt = proc v -> do
+    t <- time -< ()
     rec q <- init empty -< q' |> (t+dt, v) -- this list has pairs of (emission time, value)
         let (ready, rest) = Seq.spanl ((<= t) . fst) q
             (ret, q') = case viewr ready of
@@ -188,8 +235,9 @@ fdelayC i dt = proc (t, v) -> do
 --   delay amount variably changes, values are moved back and forth between 
 --   these two sequences as necessary.
 --   This should provide a slight performance boost.
-vdelayC :: ArrowInit a => DeltaT -> b -> a (Time, DeltaT, b) b
-vdelayC maxDT i = proc (t, dt, v) -> do
+vdelayC :: (ArrowTime a, ArrowInit a) => DeltaT -> b -> a (DeltaT, b) b
+vdelayC maxDT i = proc (dt, v) -> do
+    t <- time -< ()
     rec (qlow, qhigh) <- init (empty,empty) -< 
                 (dropMostWhileL ((< t-maxDT) . fst) qlow', qhigh' |> (t, v))
                     -- this is two lists with pairs of (initial time, value)
@@ -221,8 +269,9 @@ vdelayC maxDT i = proc (t, dt, v) -> do
 --   fast enough compared to the timer frequency, this should give accurate and 
 --   predictable output and stay synchronized with any other timer and with 
 --   time itself.
-timer :: ArrowInit a => a (Time, DeltaT) (SEvent ())
-timer = proc (now, dt) -> do
+timer :: (ArrowTime a, ArrowInit a) => a DeltaT (SEvent ())
+timer = proc dt -> do
+    now <- time -< ()
     rec last <- init 0 -< t'
         let ret = now >= last + dt
             t'  = latestEventTime last dt now
@@ -238,9 +287,9 @@ timer = proc (now, dt) -> do
 -- | genEvents is a timer that instead of returning unit events 
 --   returns the next element of the input list.  When the input 
 --   list is empty, the output stream becomes all Nothing.
-genEvents :: ArrowInit a => [b] -> a (Time, DeltaT) (SEvent b)
-genEvents lst = proc inp -> do
-    e <- timer -< inp
+genEvents :: (ArrowTime a, ArrowInit a) => [b] -> a DeltaT (SEvent b)
+genEvents lst = proc dt -> do
+    e <- timer -< dt
     rec l <- init lst -< maybe l (const $ drop 1 l) e
     returnA -< maybe Nothing (const $ listToMaybe l) e
 
@@ -249,60 +298,64 @@ genEvents lst = proc inp -> do
 -- Event buffer
 --------------------------------------
 
-data BufferControl b = Play | Pause | Clear | {-SkipAhead DeltaT | -} AddData [(DeltaT, b)]
--- buffer takes a control signal as well as an input stream of data and 
--- returns values appropriate to the control signal:
+data BufferEvent b = 
+      Clear -- Erase the buffer
+    | SkipAhead DeltaT  -- Skip ahead a certain amount of time in the buffer
+    | AddData      [(DeltaT, b)]    -- Merge data into the buffer
+    | AddDataToEnd [(DeltaT, b)]    -- Add data to the end of the buffer
+type Tempo = Double
+type BufferControl b = (SEvent (BufferEvent b), Bool, Tempo)
+--  BufferControl has a Buffer event, a bool saying whether to Play (true) or 
+--  Pause (false), and a tempo multiplier.
 
 -- | eventBuffer allows for a timed series of events to be prepared and 
---   emitted.  The streaming input is an event stream containing lists 
---   of timestamped values.  Just as MIDI files have events timed based 
+--   emitted.  The streaming input is a BufferControl, described above.  
+--   Just as MIDI files have events timed based 
 --   on ticks since the last event, the events here are timed based on 
 --   seconds since the last event.  If an event is to occur 0.0 seconds 
 --   after the last event, then it is assumed to be played at the same 
---   time as that other event, and all simultaneous events are emitted 
+--   time as the last event, and all simultaneous events are emitted 
 --   at the same timestep. In addition to any events emitted, a 
 --   streaming Bool is emitted that is True if the buffer is empty and 
 --   False if the buffer is full (meaning that events will still come).
---   Note that any AddData event will queue the data to immediately start, 
---   even if that means overlapping with current data.
---   Play and Pause are control signals for output.
---   Clear will clear the buffer of future events.
---   SkipAhead t will skip forward t seconds.
-eventBuffer :: ArrowInit a => a (SEvent (BufferControl b), Time) (SEvent [b], Bool)
-eventBuffer = proc (bc, t) -> do
-    rec tprev  <- delay 0  -< t
-        tLast  <- delay 0  -< nextT
-        buffer <- delay [] -< buffer''
-        state' <- delay Play -< state
-        let (buffer', state, tLast') = maybe (buffer, state', tLast) (update buffer state' tLast) bc
-            (nextMsgs, buffer'', nextT) = case state of
-                Play  -> getNextEvent tLast' t buffer'
-                Pause -> (Nothing, buffer', tLast' + (t - tprev))
-    returnA -< (nextMsgs, null buffer'')
+eventBuffer :: (ArrowTime a, ArrowInit a) => a (BufferControl b) (SEvent [b], Bool)
+eventBuffer = proc (bc, doPlay, tempo) -> do
+    t <- time -< ()
+    rec tprev  <- delay 0    -< t   --used to calculate dt, the change in time
+        buffer <- delay []   -< buffer''' --the buffer
+        let dt = tempo * (t-tprev) --dt will never be negative
+            buffer' = if doPlay then subTime buffer dt else buffer
+            buffer'' = maybe buffer' (update buffer') bc  --update the buffer based on the control
+            (nextMsgs, buffer''') = if doPlay then getNextEvent buffer'' --get any events that are ready
+                                    else (Nothing, buffer'')
+    returnA -< (nextMsgs, null buffer''')
   where 
-    getNextEvent :: Time -> Time -> [(DeltaT, b)] -> (SEvent [b], [(DeltaT, b)], Time)
-    getNextEvent tLast t buffer = 
-        let (e,(es,rest)) = (head buffer, span ((<=0).fst) $ tail buffer)
-            nextEs = map snd (e:es)
-            tNext = fst e
-        in  if null buffer then (Nothing, [], 0)
-            else if t - tLast < tNext
-                 then (Nothing, buffer, tLast)
-                 else (Just nextEs, rest, t)
-    update b _ t Play = (b, Play, t)
-    update b _ t Pause = (b, Pause, t)
-    update _ s t Clear = ([], s, t)
---    update b s t (SkipAhead 0) = (b, s, t)
---    update [] s t (SkipAhead _) = ([], s, 0)
---    update ((bt,b):bs) s t (SkipAhead dt) = if bt < t + dt then 
-    update b s t (AddData []) = (b, s, t)
-    update [] s t (AddData b) = (b, s, t)
-    update b s t (AddData b') = (merge b b', s, t)
+    subTime :: [(DeltaT, b)] -> DeltaT -> [(DeltaT, b)]
+    subTime [] _ = []
+    subTime ((bt,b):bs) dt = if bt < dt then (0,b):subTime bs (dt-bt) else (bt-dt,b):bs
+    getNextEvent :: [(DeltaT, b)] -> (SEvent [b], [(DeltaT, b)])
+    getNextEvent buffer = 
+        let (es,rest) = span ((<=0).fst) buffer
+            nextEs = map snd es
+        in  if null buffer then (Nothing, [])
+            else (Just nextEs, rest)
+    update :: [(DeltaT, b)] -> BufferEvent b -> [(DeltaT, b)]
+    update _ Clear = []
+    update b (SkipAhead dt) = skipAhead b dt
+    update b (AddData b') = merge b b'
+    update b (AddDataToEnd b') = b ++ b'
+    merge :: [(DeltaT, b)] -> [(DeltaT, b)] -> [(DeltaT, b)]
     merge b [] = b
     merge [] b = b
     merge ((bt1,b1):bs1) ((bt2,b2):bs2) = if bt1 < bt2
         then (bt1,b1):merge bs1 ((bt2-bt1,b2):bs2)
         else (bt2,b2):merge ((bt1-bt2,b1):bs1) bs2
+    skipAhead :: [(DeltaT, b)] -> DeltaT -> [(DeltaT, b)]
+    skipAhead [] _ = []
+    skipAhead b dt | dt <= 0 = b
+    skipAhead ((bt,b):bs) dt = if bt < dt 
+        then skipAhead bs (dt-bt)
+        else (bt-dt,b):bs
 
 
 --------------------------------------
@@ -408,6 +461,50 @@ toRealTimeMSF clockrate buffer threadHandler sf = MSF initFun
         worker inp out timevar t' (count+1) sf'
     seqLastElem s = Seq.index s (Seq.length s - 1)
 
+-- | The async function takes a pure (non-monadic) signal function and converts 
+--   it into an asynchronous signal function usable in a MonadIO signal 
+--   function context.  The output MSF takes events of type a, feeds them to 
+--   the asynchronously running input SF, and returns events with the output 
+--   b whenever they are ready.  The input SF is expected to run slowly 
+--   compared to the output MSF, but it is capable of running just as fast.
+--
+--   Might we practically want a way to "clear the buffer" if we accidentally 
+--   queue up too many async inputs?
+--   Perhaps the output should be something like:
+--   data AsyncOutput b = None | Calculating Int | Value b
+--   where the Int is the size of the buffer.  Similarly, we could have
+--   data AsyncInput  a = None | ClearBuffer | Value a
+async :: forall m a b. (Monad m, MonadIO m, MonadFix m, NFData b) => 
+                 (ThreadId -> m ()) -> SF a b -> MSF m (SEvent a) (SEvent b)
+async threadHandler sf = delay Nothing >>> MSF initFun
+  where
+    -- initFun creates some refs and threads and is never used again.
+    -- All future processing is done in sfFun and the spawned worker thread.
+    initFun :: (SEvent a) -> m ((SEvent b), MSF m (SEvent a) (SEvent b))
+    initFun ea = do
+        inp <- newChan
+        out <- newIORef empty
+        tid <- liftIO $ forkIO $ worker inp out sf
+        threadHandler tid
+        sfFun inp out ea
+    -- sfFun communicates with the worker thread, sending it the input values 
+    -- and collecting from it the output values.
+    sfFun :: Chan a -> IORef (Seq b) 
+          -> (SEvent a) -> m ((SEvent b), MSF m (SEvent a) (SEvent b))
+    sfFun inp out ea = do
+        maybe (return ()) (writeChan inp) ea    -- send the worker the new input
+        b <- atomicModifyIORef out seqRestHead  -- collect any ready results
+        return (b, MSF (sfFun inp out))
+    -- worker processes the inner, "simulated" signal function.
+    worker :: Chan a -> IORef (Seq b) -> SF a b -> IO ()
+    worker inp out (SF sf) = do
+        a <- readChan inp       -- get the latest input (or block if unavailable)
+        let (b, sf') = sf a     -- do the calculation
+        deepseq b $ atomicModifyIORef out (\s -> (s |> b, ()))
+        worker inp out sf'
+    seqRestHead s = case viewl s of
+        EmptyL  -> (s,  Nothing)
+        a :< s' -> (s', Just a)
 
 
 --------------------------------------

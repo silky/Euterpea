@@ -25,7 +25,6 @@ arrow syntax when needed, we omit that functionality from Eutperpea's
 versions of the unit generators.
 
 > module Euterpea.IO.Audio.BasicSigFuns (
->   constA,
 >   Table,
 >   pluck,
 >   PluckDecayMethod(..),
@@ -94,7 +93,7 @@ versions of the unit generators.
 > import Control.CCA.ArrowP
 > import Control.CCA.Types
 > import Control.CCA.CCNF
-> import Control.SF.AuxFunctions (SEvent)
+> import Control.SF.AuxFunctions (SEvent, constA)
 > import Data.Array.Base (unsafeAt)
 > import Data.Array.Unboxed
 
@@ -114,9 +113,6 @@ versions of the unit generators.
 
 Helper Functions
 ----------------
-
-> constA  :: Clock c => b -> SigFun c a b
-> constA y = arr (\_ -> y)
 
 > wrap val bound = if val > bound then wrap val (val-bound) else val
 

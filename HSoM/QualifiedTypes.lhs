@@ -283,7 +283,7 @@ where |...| refers to the other thirty equations needed to make this
 definition complete.  Indeed, this is rather tedious!  It is not only
 tedious, it is also dead obvious how |(==)| should be defined.
 
-\subsection{Dervived Instances}
+\subsection{Derived Instances}
 \label{sec:derived-instances}
 
 To alleviate the burden of defining instances such as above, Haskell
@@ -467,7 +467,6 @@ the type of a function that uses operations from both the |Eq| and
 \index{class!multiple inheritance}
 
 As an example of the use of |Ord|, a generic \emph{sort} function
-%% (such as the |quicksort| example from exercise \ref{sort-exercise})
 should be able to sort lists of any type that is an instance of
 |Ord|, and thus its most general type should be:
 \begin{spec}
@@ -544,6 +543,8 @@ explanation a few more of Haskell's secrets will be revealed.
        & |toEnum :: Enum a => Int -> a  |  & \\
        & also enables arithmetic sequences & \\
        & minimal set: |toEnum| \& |fromEnum| & \\
+\hline
+|Bounded| & |minBound,maxBound :: a|       & |Int, Char, Bool| \\
 \hline
 |Show| & |show :: Show a => a -> String|   & Almost every type except \\
        &                                   & for functions \\
@@ -747,14 +748,32 @@ The textual representation defined by a derived |Show| instance is
 consistent with the appearance of constant Haskell expressions
 (i.e.\ values) of the type involved.  For example, from:
 \begin{spec}
-data Color = Red | Orange | Yellow | Green | Blue | Indigo | Violet
-     deriving (Eq,Enum,Show)
+data Color = Black
+           | Blue
+           | Green
+           | Cyan
+           | Red
+           | Magenta
+           | Yellow
+           | White
+  deriving (Show, Eq, Ord, Enum, Bounded)
 \end{spec}
 we can expect that:
 \begin{spec}
 show [Red ..]  
-===>  "[Red,Orange,Yellow,Green,Blue,Indigo,Violet]"
+===>  "[Black,Blue,Green,Cyan,Red,Magenta,Yellow,White]"
 \end{spec}
+
+We can also expect that:
+\begin{spec}
+minBound :: Color ===> Black
+maxBound :: Color ===> White
+\end{spec}
+Note that the type signature ``|:: Color|'' is given explicitly in
+this case, because, out of any context, at least, Haskell does not
+know the type for which you are trying to determine the minimum and
+maximum bounds.
+
 Further details about derived instances can be found in the Haskell
 Report.
 
@@ -800,12 +819,13 @@ save space).
   |Eq| is given), since |Eq| is a superclass of |Ord|.}
 
 \begin{figure}
+\cbox{\small
 \begin{spec}
 data PitchClass  =  Cff | Cf | C | Dff | Cs | Df | Css | D | Eff | Ds 
                  |  Ef | Fff | Dss | E | Ff | Es | F | Gff | Ess | Fs
                  |  Gf | Fss | G | Aff | Gs | Af | Gss | A | Bff | As 
                  |  Bf | Ass | B | Bs | Bss
-  deriving (Eq, Ord, Show, Read, Enum)
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 data Primitive a  =  Note Dur a        
                   |  Rest Dur          
@@ -825,7 +845,7 @@ data Control =
     |  Phrase      [PhraseAttribute]  -- phrase attributes
     |  Player      PlayerName         -- player label
   deriving (Show, Eq, Ord)
-\end{spec}
+\end{spec}}
 \caption{Euterpea's Data Types with Deriving Clauses}
 \label{fig:actual-datatypes}
 \end{figure}
@@ -1022,17 +1042,27 @@ functions whose domains are finite, and can be completely enumerated,
 function, when applied to each element in the domain, returns the same
 result.
 
-Define an instance of |Eq| for functions.  Note that if the function
-type is |a->b| then the type |a| must be enumerable (i.e.\ a member of
-the |Enum| class), and the type |b| must admit equality (i.e.\ be a
-member of the |Eq| class).  These constraints must therefore be part
-of the instance declaration.
+Define an instance of |Eq| for functions.  For this to be possible,
+note that, if the function type is |a->b|, then:
+\begin{itemize}
+\item
+the type |a| must be \emph{enumerable} (i.e.\ a member of the |Enum| class), 
+\item
+the type |a| must be \emph{bounded} (i.e.\ a member of |Bounded| class), and
+\item
+the type |b| must admit \emph{equality} (i.e.\ be a member of the |Eq|
+class).
+\end{itemize}
+These constraints must therefore be part of the instance declaration.
 
-Hint: to enumerate all the elements in a finite domain, consider using
-the methods |toEnum| and |fromEnum| in the class |Enum|.
+Hint: using the minimum and maximum bounds of a type, enumerate all
+the elements of that type using an arithmetic sequence (recall Section
+\ref{sec:arithmetic-sequences}), which, despite its name, works for
+any enumerable type.
 
-Test your implementation by defining some functions with finite
-domains (such as |PitchClass|, |InstrumentName|, |Color|, and so on).}
+Test your implementation by defining some functions on existing
+Euterpea types that are finite and bounded (such as |PitchClass|
+and |Color|), or by defining some functions on your own data type(s).}
 \end{exercise}
 
 \vspace{.1in}\hrule

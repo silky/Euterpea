@@ -8,10 +8,11 @@
 >   module Euterpea.IO.Audio,
 >   module Euterpea.IO.MIDI,
 >   module Euterpea.IO.MUI,
+>   module Control.Arrow,
 >   -- These 4 lines are from Control.SF.AuxFunctions
->   SEvent, edge, accum, 
->   unique, hold, now, mergeE, 
->   delay, vdelay, fdelay, 
+>   SEvent, edge, accum, constA, constSF, foldA, foldSF, 
+>   unique, hold, now, mergeE,
+>   delay, vdelay, fdelay,
 >   timer, genEvents, Time, DeltaT,
 >   -- This next line is from Codec.Midi
 >   exportFile, importFile
@@ -24,6 +25,7 @@
 > import Euterpea.IO.MIDI
 > import Euterpea.IO.MUI
 
+> import Control.Arrow
 > import Control.SF.AuxFunctions
 
 > import Codec.Midi(exportFile, importFile)

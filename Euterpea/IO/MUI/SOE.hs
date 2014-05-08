@@ -4,7 +4,7 @@ module Euterpea.IO.MUI.SOE (
   Size,
   Window,
   openWindow,
-  getWindowSize,
+  getMainWindowSize,
   clearWindow,
   drawInWindow,
   drawInWindowNow,
@@ -39,19 +39,23 @@ module Euterpea.IO.MUI.SOE (
   polyBezier,
   Angle,
   arc,
-  Region,
-  createRectangle,
-  createEllipse,
-  createPolygon,
-  andRegion,
-  orRegion,
-  xorRegion,
-  diffRegion,
-  drawRegion,
---  getKey,  -- See note at definition for why these are left out
+  scissorGraphic,
+--  Region,     --Regions are an unused feature
+--  createRectangle,
+--  createEllipse,
+--  createPolygon,
+--  andRegion,
+--  orRegion,
+--  xorRegion,
+--  diffRegion,
+--  drawRegion,
+--  getKey,     -- See note at definition for why these are left out
 --  getLBP,
 --  getRBP,
-  Event (..),
+  KeyModifiers (..),
+  Key(..), 
+  SpecialKey (..),
+  UIEvent (..),
   maybeGetWindowEvent,
   getWindowEvent,
   Word32,
@@ -62,11 +66,14 @@ module Euterpea.IO.MUI.SOE (
 
 import Data.Ix (Ix)
 import Data.Word (Word32)
-import Control.Concurrent
+import Graphics.UI.GLFW (Key(..), SpecialKey(..))
 import qualified Graphics.UI.GLFW as GLFW
 import qualified Graphics.Rendering.OpenGL as GL
 import Graphics.Rendering.OpenGL (($=), GLfloat)
-import System.IO.Unsafe
+import System.IO.Unsafe (unsafePerformIO)
+import Control.Concurrent.STM.TChan
+import Control.Monad.STM (atomically)
+import Control.Concurrent.MVar
 
 
 -------------------
@@ -81,7 +88,7 @@ type Size = (Int, Int)
 
 data Window = Window {
   graphicVar :: MVar (Graphic, Bool), -- boolean to remember if it's dirty
-  eventsChan :: Chan Event
+  eventsChan :: TChan UIEvent
 }
 
 -- Graphic is just a wrapper for OpenGL IO
@@ -109,7 +116,7 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) = do
   let siz = maybe (GL.Size 400 300) fromSize size
   initialize
   graphicVar <- newMVar (emptyGraphic, False)
-  eventsChan <- newChan
+  eventsChan <- atomically newTChan
   GLFW.openWindow siz [GLFW.DisplayStencilBits 8, GLFW.DisplayAlphaBits 8] GLFW.Window
   GLFW.windowTitle $= title
   modifyMVar_ opened (\_ -> return True)
@@ -124,35 +131,34 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) = do
   -- let updateWindow = readMVar graphicVar >>= (\(Graphic g) -> g >> GLFW.swapBuffers)
   -- GLFW.windowRefreshCallback $= updateWindow
 
-  let motionCallback (GL.Position x y) =
-        writeChan eventsChan MouseMove { pt = (fromIntegral x, fromIntegral y) }
+  let motionCallback (GL.Position x y) = atomically $ 
+        writeTChan eventsChan MouseMove { pt = (fromIntegral x, fromIntegral y) }
   GLFW.mousePosCallback $= motionCallback
      
-  let charCallback char state =  
-        writeChan eventsChan (Key { char = char, isDown = (state == GLFW.Press) })
-  let keyCallBack key state = case key of
-        GLFW.SpecialKey sk -> writeChan eventsChan (SKey { skey = sk, isDown = (state == GLFW.Press) })
---      GLFW.SpecialKey GLFW.ESC -> charCallback '\033' state
---      GLFW.SpecialKey GLFW.BACKSPACE -> charCallback '\08' state
---      GLFW.SpecialKey GLFW.DEL   -> charCallback '\0177' state
---      GLFW.SpecialKey GLFW.LEFT  -> charCallback '\0208' state
---      GLFW.SpecialKey GLFW.RIGHT -> charCallback '\0214' state
---      GLFW.SpecialKey GLFW.UP    -> charCallback '\0213' state
---      GLFW.SpecialKey GLFW.DOWN  -> charCallback '\0200' state
-        _ -> return ()
+  let charCallback char state = atomically $ writeTChan eventsChan (Character char)
+  let keyCallBack  key  state = do
+      lshift <- isKeyPressed (SpecialKey LSHIFT)
+      lctrl  <- isKeyPressed (SpecialKey LCTRL)
+      lalt   <- isKeyPressed (SpecialKey LALT)
+      rshift <- isKeyPressed (SpecialKey RSHIFT)
+      rctrl  <- isKeyPressed (SpecialKey RCTRL)
+      ralt   <- isKeyPressed (SpecialKey RALT)
+      atomically $ writeTChan eventsChan (Key { key = key, isDown = (state == GLFW.Press),
+                    modifiers = KeyModifiers {shift = lshift || rshift, ctrl = lctrl || rctrl, alt = lalt || ralt}})
+  
   GLFW.charCallback $= charCallback 
   GLFW.keyCallback  $= keyCallBack
   GLFW.enableSpecial GLFW.KeyRepeat
 
   GLFW.mouseButtonCallback $= (\but state -> do
     GL.Position x y <- GL.get GLFW.mousePos
-    writeChan eventsChan (Button {
+    atomically $ writeTChan eventsChan (Button {
         pt = (fromIntegral x, fromIntegral y),
         isLeft = (but == GLFW.ButtonLeft),
         isDown = (state == GLFW.Press) }))
 
-  GLFW.windowSizeCallback $= writeChan eventsChan . Resize
-  GLFW.windowRefreshCallback $= writeChan eventsChan Refresh
+  GLFW.windowSizeCallback $= atomically . writeTChan eventsChan . Resize
+  GLFW.windowRefreshCallback $= atomically (writeTChan eventsChan Refresh)
   GLFW.windowCloseCallback $= (closeWindow_ eventsChan >> return True)
 
   return Window {
@@ -160,8 +166,8 @@ openWindowEx title position size (RedrawMode useDoubleBuffer) = do
     eventsChan = eventsChan
   }
 
-getWindowSize :: Window -> IO Size
-getWindowSize win = do
+getMainWindowSize :: IO Size
+getMainWindowSize = do
   (GL.Size x y) <- GL.get GLFW.windowSize
   return (fromIntegral x, fromIntegral y)
 
@@ -206,7 +212,7 @@ closeWindow :: Window -> IO ()
 closeWindow win = closeWindow_ (eventsChan win)
 
 closeWindow_ chan = do
-  writeChan chan Closed
+  atomically $ writeTChan chan Closed
   modifyMVar_ opened (\_ -> return False)
   GLFW.closeWindow
   GLFW.pollEvents
@@ -352,9 +358,22 @@ arc pt1 pt2 start extent = Graphic $ GL.preservingMatrix $ do
   GL.renderPrimitive GL.LineStrip (circle r1 r2 
     (-(start + extent) * pi / 180) (-start * pi / 180) (6 / (r1 + r2)))
 
+
+scissorGraphic :: (Point, Size) -> Graphic -> Graphic
+scissorGraphic ((x,y), (w,h)) (Graphic g) = Graphic $ do
+    (_,windowY) <- getMainWindowSize
+    let [x', y', w', h'] = map fromIntegral [x, windowY-y-h, w, h]
+    oldScissor <- GL.get GL.scissor
+    GL.scissor $= Just (GL.Position x' y', GL.Size w' h')
+    g
+    GL.scissor $= oldScissor
+
+
 -------------------
 -- Region Functions
 -------------------
+
+{- Unused
 
 createRectangle :: Point -> Point -> Region
 createRectangle pt1 pt2 =
@@ -467,30 +486,37 @@ combineRegion operator a b =
     XOR -> disjuction (conjuction (negTerm a) b) (conjuction a (negTerm b))
     DIFF -> conjuction a (negTerm b)
 
+-}
 ---------------------------
 -- Event Handling Functions
 ---------------------------
 
-data Event = Key {
-               char :: Char,
-               isDown :: Bool
-             }
-           | SKey {
-               skey :: GLFW.SpecialKey,
-               isDown :: Bool
-             }
-           | Button {
-              pt :: Point,
-              isLeft :: Bool,
-              isDown :: Bool
-             }
-           | MouseMove {
-               pt :: Point
-             }
-           | Resize GL.Size
-           | Refresh
-           | Closed
-  deriving Show
+data KeyModifiers = KeyModifiers {
+    shift :: Bool,
+    ctrl  :: Bool,
+    alt   :: Bool }
+  deriving (Show, Eq)
+
+data UIEvent = 
+    Key {
+      key :: GLFW.Key,
+      isDown :: Bool,
+      modifiers :: KeyModifiers
+    }
+  | Character Char -- Character events in GLFW only emit when pressed.
+  | Button {
+     pt :: Point,
+     isLeft :: Bool,
+     isDown :: Bool
+    }
+  | MouseMove {
+      pt :: Point
+    }
+  | Resize GL.Size
+  | Refresh
+  | Closed
+  | NoUIEvent
+ deriving Show
 
 
 -- | getWindowEvent and maybeGetWindowEvent both take an additional argument 
@@ -499,34 +525,47 @@ data Event = Key {
 --  tasks at these times rather than needlessly spinning.  The sleepTime 
 --  parameter used to be fixed at 0.01.
 
-getWindowEvent :: Double -> Window -> IO Event
+getWindowEvent :: Double -> Window -> IO UIEvent
 getWindowEvent sleepTime win = do
   event <- maybeGetWindowEvent sleepTime win
   maybe (getWindowEvent sleepTime win) return event
 
-maybeGetWindowEvent :: Double -> Window -> IO (Maybe Event)
-maybeGetWindowEvent sleepTime win = do
+maybeGetWindowEvent :: Double -> Window -> IO (Maybe UIEvent)
+maybeGetWindowEvent sleepTime win = let winChan = eventsChan win in do
   updateWindowIfDirty win
-  noEvents <- isEmptyChan (eventsChan win)
-  if noEvents 
-    then GLFW.sleep sleepTime >> GLFW.pollEvents >> return Nothing
-    else do
-      event <- readChan (eventsChan win)
-      case event of
-        Refresh -> do
-          (Graphic io, _) <- readMVar (graphicVar win)
-          io
-          GLFW.swapBuffers
-          maybeGetWindowEvent sleepTime win
-        Resize size@(GL.Size w h) -> do
-          GL.viewport $= (GL.Position 0 0, size)
-          GL.matrixMode $= GL.Projection
-          GL.loadIdentity
-          GL.ortho2D 0 (realToFrac w) (realToFrac h) 0
-	  -- force a refresh, needed for OS X
-	  writeChan (eventsChan win) Refresh
-          maybeGetWindowEvent sleepTime win
-        e -> return (Just e)
+  mevent <- atomically $ tryReadTChan winChan
+  case mevent of
+    Nothing -> GLFW.sleep sleepTime >> GLFW.pollEvents >> return Nothing
+    Just Refresh -> do
+      (Graphic io, _) <- readMVar (graphicVar win)
+      io
+      GLFW.swapBuffers
+      maybeGetWindowEvent sleepTime win
+    Just (e@(Resize _)) -> do
+      (Resize size@(GL.Size w h)) <- getLastResizeEvent winChan e
+      GL.viewport $= (GL.Position 0 0, size)
+      GL.matrixMode $= GL.Projection
+      GL.loadIdentity
+      GL.ortho2D 0 (realToFrac w) (realToFrac h) 0
+      -- force a refresh, needed for OS X
+      atomically $ writeTChan winChan Refresh
+      maybeGetWindowEvent sleepTime win
+    Just e -> return (Just e)
+
+-- | When a window is resized, all of the resize events queue up until the 
+--   mouse button is released.  This causes some delay as each individual 
+--   resize event is handled and then the window is redrawn.  This function 
+--   clears all resize and refresh events until the last resize one.
+--   Note that because this function is used, a Refresh event should follow 
+--   the resizing.
+getLastResizeEvent :: TChan UIEvent -> UIEvent -> IO UIEvent
+getLastResizeEvent ch prev = do
+    mevent <- atomically $ tryReadTChan ch
+    case mevent of
+      Nothing -> return prev
+      Just (e@(Resize _)) -> getLastResizeEvent ch e
+      Just Refresh        -> getLastResizeEvent ch prev
+      Just e -> atomically (unGetTChan ch e) >> return prev
 
 
 -- | getKeyEx, getKey, getButton, getLBP, and getRBP are defined here but 

@@ -10,36 +10,28 @@ module Euterpea.IO.MUI
   , pad                 -- :: (Int, Int, Int, Int) -> UISF a b -> UISF a b
   , runUI               -- :: String -> UISF () () -> IO ()
   , runUIEx             -- :: Dimension -> String -> UISF () () -> IO ()
-  , time                -- :: UISF () Time
-    -- UISF builders (DWC Note: I don't feel comfortable with how generic these are)
-  , uisfSourceE         -- :: IO c ->         UISF (SEvent ()) (SEvent c)
-  , uisfSinkE           -- :: (b -> IO ()) -> UISF (SEvent b)  (SEvent ())
-  , uisfPipeE           -- :: (b -> IO c) ->  UISF (SEvent b)  (SEvent c)
+  , getTime             -- :: UISF () Time
     -- Widgets
   , label               -- :: String -> UISF a a
   , displayStr          -- :: UISF String ()
   , display             -- :: Show a => UISF a ()
   , withDisplay         -- :: Show b => UISF a b -> UISF a b
-  , textbox             -- :: String -> UISF String String
+  , textboxE            -- :: String -> UISF (SEvent String) String
+  , textbox             -- :: UISF String String
   , title               -- :: String -> UISF a b -> UISF a b
   , button              -- :: String -> UISF () Bool
   , stickyButton        -- :: String -> UISF () Bool
   , checkbox            -- :: String -> Bool -> UISF () Bool
+  , checkGroup          -- :: [(String, a)] -> UISF () [a]
   , radio               -- :: [String] -> Int -> UISF () Int
   , hSlider, vSlider    -- :: RealFrac a => (a, a) -> a -> UISF () a
   , hiSlider, viSlider  -- :: Integral a => a -> (a, a) -> a -> UISF () a
   , realtimeGraph       -- :: RealFrac a => Layout -> Time -> Color -> UISF (Time, [(a,Time)]) ()
   , histogram           -- :: RealFrac a => Layout -> UISF (Event [a]) ()
   , listbox             -- :: (Eq a, Show a) => UISF ([a], Int) Int
-  , midiIn              -- :: UISF DeviceID (Event [MidiMessage])
-  , midiInM             -- :: UISF [(DeviceID, Bool)] (Event [MidiMessage])
-  , midiOut             -- :: UISF (DeviceID, Event [MidiMessage]) ()
-  , midiOutB            -- :: UISF (DeviceID, Event [(Time, MidiMessage)]) Bool
-  , midiOutB'           -- :: UISF (DeviceID, Event BufferControl MidiMessage) Bool
-  , midiOutM            -- :: UISF ([(DeviceID, Bool)], Event [MisiMessage]) ()
-  , musicToMsgs         -- :: Bool -> [InstrumentName] -> Music1 -> [(Time, MidiMessage)]
+  , midiIn              -- :: UISF DeviceID (SEvent [MidiMessage])
+  , midiOut             -- :: UISF (DeviceID, SEvent [MidiMessage]) ()
   , selectInput, selectOutput    -- :: UISF () DeviceID
-  , selectInputM, selectOutputM  -- :: UISF () [(DeviceID, Bool)]
   , canvas              -- :: Dimension -> UISF (Event Graphic) ()
   , canvas'             -- :: Layout -> (a -> Dimension -> Graphic) -> UISF (Event a) ()
   -- Widget Utilities
@@ -51,4 +43,5 @@ module Euterpea.IO.MUI
 import Euterpea.IO.MUI.UIMonad
 import Euterpea.IO.MUI.UISF
 import Euterpea.IO.MUI.Widget
+import Euterpea.IO.MUI.MidiWidgets
 import Euterpea.IO.MUI.SOE (Color (..))

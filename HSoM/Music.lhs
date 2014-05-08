@@ -117,7 +117,7 @@ data PitchClass  =  Cff | Cf | C | Dff | Cs | Df | Css | D | Eff | Ds
                  |  Ef | Fff | Dss | E | Ff | Es | F | Gff | Ess | Fs
                  |  Gf | Fss | G | Aff | Gs | Af | Gss | A | Bff | As 
                  |  Bf | Ass | B | Bs | Bss
-     deriving (Eq, Ord, Show, Read, Enum)
+     deriving (Show, Eq, Ord, Read, Enum, Bounded)
 \end{code}
 }
 
@@ -398,19 +398,19 @@ data Control =
 
 type PlayerName  = String
 data Mode        = Major | Minor
-  deriving (Eq, Ord, Show)
+  deriving (Show, Eq, Ord)
 \end{code}
 }
 
 |AbsPitch| (``absolute pitch,'' to be defined in Section
 \ref{sec:abspitch}) is just a type synonym for |Int|.  Instrument
-names are borrowed from the General MIDI standard \cite{MIDI}, and are
-captured as an algebraic data type in Figure
-\ref{fig:instrument-names}.  Phrase attributes and the concept of a
-``player'' are closely related, but a full explanation is deferred
-until Chapter \ref{ch:performance}.  The |KeySig| constructor attaches
-a key signature to a |Music| value, and is different conceptually from
-transposition.
+names are borrowed from the General MIDI standard
+\cite{MIDI,General-MIDI}, and are captured as an algebraic data type
+in Figure \ref{fig:instrument-names}.  Phrase attributes and the
+concept of a ``player'' are closely related, but a full explanation is
+deferred until Chapter \ref{ch:performance}.  The |KeySig| constructor
+attaches a key signature to a |Music| value, and is different
+conceptually from transposition.
 
 %% are defined in Figure \ref{fig:phase-attributes}.  The 
 
@@ -480,34 +480,34 @@ data PhraseAttribute  =  Dyn Dynamic
                       |  Tmp Tempo
                       |  Art Articulation
                       |  Orn Ornament
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Dynamic  =  Accent Rational | Crescendo Rational | Diminuendo Rational
               |  StdLoudness StdLoudness | Loudness Rational
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data StdLoudness = PPP | PP | P | MP | SF | MF | NF | FF | FFF
-     deriving (Eq, Ord, Show, Enum)
+     deriving (Show, Eq, Ord, Enum)
 
 data Tempo = Ritardando Rational | Accelerando Rational
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Articulation  =  Staccato Rational | Legato Rational | Slurred Rational
                    |  Tenuto | Marcato | Pedal | Fermata | FermataDown | Breath
                    |  DownBow | UpBow | Harmonic | Pizzicato | LeftPizz
                    |  BartokPizz | Swell | Wedge | Thumb | Stopped
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Ornament  =  Trill | Mordent | InvMordent | DoubleMordent
                |  Turn | TrilledTurn | ShortTrill
                |  Arpeggio | ArpeggioUp | ArpeggioDown
                |  Instruction String | Head NoteHead
                |  DiatonicTrans Int
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data NoteHead  =  DiamondHead | SquareHead | XHead | TriangleHead
                |  TremoloHead | SlashHead | ArtHarmonic | NoHead
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 \end{code}}
 \caption{Phrase Attributes}
@@ -586,7 +586,8 @@ in x + y
 %% In fact this same rule may be used to override layout in any context,
 %% how the layout rule can be overridden through the use of a semicolon.
 
-\begin{figure}{\small
+\begin{figure}
+\cbox{\small
 \begin{code}
 cff,cf,c,cs,css,dff,df,d,ds,dss,eff,ef,e,es,ess,fff,ff,f,
   fs,fss,gff,gf,g,gs,gss,aff,af,a,as,ass,bff,bf,b,bs,bss :: 
@@ -615,7 +616,8 @@ bss  o d = note d (Bss,  o)
 \label{fig:note-names}
 \end{figure}
 
-\begin{figure}{\small
+\begin{figure}
+\cbox{\small
 \begin{code}
 
 bn, wn, hn, qn, en, sn, tn, sfn, dwn, dhn, 
@@ -774,6 +776,16 @@ will have to be converted into a |Music Pitch| value.  Define a
 function |fromBlues :: Music BluesPitch -> Music Pitch| to do this,
 using the ``approximate'' translation described at the beginning of
 this exercise.
+
+Hint: To do this properly, you will have to pattern match against the
+|Music| value, something like this:
+\begin{spec}
+fromBlues (Prim (Note d p))  = ...
+fromBlues (Prim (Rest d))    = ...
+fromBlues (m1 :+: m2)        = ...
+fromBlues (m1 :=: m2)        = ...
+fromBlues (Modify ...)       = ...
+\end{spec}
 \item
 Write out a few melodies of type |Music BluesPitch|, and play them
 using |fromBlues| and |play|.
@@ -819,7 +831,8 @@ With this definition, |absPitch (Cf,4)| yields 47, as desired.
 %% instead of 12?  I do not know.  In most cases it will not matter, but
 %% it is an interesting question.
 
-\begin{figure}{\small
+\begin{figure}
+\cbox{\small
 \begin{spec}
 pcToInt :: PitchClass -> Int
 
@@ -917,6 +930,29 @@ equivalences, |pitch (abspitch p) = p|.}
 
 \begin{exercise}{\em
 Show that |trans i (trans j p) = trans (i+j) p|.}
+\end{exercise}
+
+\begin{exercise}{\em
+|Transpose| is part of the |Control| data type, which in turn is part
+of the |Music| data type.  Its use in transposing a |Music| value is
+thus a kind of ``annotation''---it doesn't really change the |Music|
+value, it just annotates it as something that is transposed.
+
+Define instead a recursive function |transM :: AbsPitch -> Music Pitch
+-> Music Pitch| that actually changes each note in a |Music Pitch|
+value by transposing it by the interval represented by the first
+argument.
+
+Hint: To do this properly, you will have to pattern match against the
+|Music| value, something like this:
+\begin{spec}
+transM ap (Prim (Note d p))  = ...
+transM ap (Prim (Rest d))    = ...
+transM ap (m1 :+: m2)        = ...
+transM ap (m1 :=: m2)        = ...
+transM ap (Modify ...)       = ...
+\end{spec}
+}
 \end{exercise}
 
 \vspace{.1in}\hrule

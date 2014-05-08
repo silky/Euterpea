@@ -61,7 +61,7 @@ data Event = Event {  eTime    :: PTime,
                       eDur     :: DurT, 
                       eVol     :: Volume, 
                       eParams  :: [Double]}
-     deriving (Eq,Ord,Show)
+     deriving (Show,Eq,Ord)
 \end{code}
 \begin{spec}
 type PTime     = Rational
@@ -80,7 +80,7 @@ type DurT      = Rational
 \begin{spec}
 data Event = Event  PTime InstrumentName 
                     AbsPitch DurT Volume [Double]
-     deriving (Eq,Ord,Show)
+     deriving (Show,Eq,Ord)
 \end{spec}
 except that the former also defines ``field labels'' |eTime|, |eInst|, 
 |ePitch|, |eDur|, |eVol|, and |eParams|, which can be used to
@@ -208,6 +208,7 @@ in understanding the definition of |perform|, let's step through the
 equations one at a time.
 
 \begin{figure}
+\cbox{\small
 \begin{spec}
 perform :: PMap a -> Context a -> Music a -> Performance
 perform pm 
@@ -226,7 +227,7 @@ perform pm
      Modify (KeySig pc mo)  m  ->  perform pm (c {cKey = (pc,mo)})   m
      Modify (Player pn)     m  ->  perform pm (c {cPlayer = pm pn})  m
      Modify (Phrase pa)     m  ->  interpPhrase pl pm c pa           m
-\end{spec}
+\end{spec}}
 \caption{An abstract |perform| function}
 \label{fig:perform}
 \end{figure}
@@ -277,7 +278,7 @@ data Control =
 
 type PlayerName  = String
 data Mode        = Major | Minor
-  deriving (Eq, Ord, Show)
+  deriving (Show, Eq, Ord)
 \end{spec}
 Each of these six constructors is handled by a separate equation in
 the definition of |perform|.  Note how the context is updated in each
@@ -320,6 +321,15 @@ efficient solution is to have |perform| compute the duration directly,
 returning it as part of its result.  This version of |perform| is
 shown in Figure \ref{fig:real-perform}.
 
+Aside from efficiency, there is a more abstract reason for including
+duration in the result of |perform|.  Namely, the performance of a
+rest is not just nothing---it is a period of ``silence'' equal in
+duration to that of the rest.  Indeed, John Cage's famous composition
+\emph{4' 33"}, in which the performer is instructed to play nothing,
+would otherwise be meaningless.\footnote{In reality this piece is
+  meant to capture extemporaneously the sound of the environment
+  during that period of ``silence.'' \cite{Cage433}}
+
 Also note that |merge| compares entire events rather than just start
 times.  This is to ensure that it is commutative, a desirable
 condition for some of the proofs used later in the text.  Here is a
@@ -335,6 +345,7 @@ merge a@(e1:es1)  b@(e2:es2)  =
 \end{code} 
 
 \begin{figure}
+\cbox{\small
 \begin{code}
 
 perform :: PMap a -> Context a -> Music a -> Performance
@@ -360,7 +371,8 @@ perf pm
      Modify  (KeySig pc mo)  m  -> perf pm (c {cKey = (pc,mo)})   m
      Modify  (Player pn)     m  -> perf pm (c {cPlayer = pm pn})  m
      Modify  (Phrase pas)    m  -> interpPhrase pl pm c pas       m
-\end{code}
+
+\end{code}}
 \caption{A more efficient |perform| function}
 \label{fig:real-perform}
 \end{figure}
@@ -400,42 +412,43 @@ violinist does, because of differences in their instruments.
 Similarly, diminuendo on a piano and diminuendo on a harpsichord are
 very different concepts.
 
-\begin{figure}{\small
+\begin{figure}
+\cbox{\small
 \begin{spec}
 data PhraseAttribute  =  Dyn Dynamic
                       |  Tmp Tempo
                       |  Art Articulation
                       |  Orn Ornament
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Dynamic  =  Accent Rational | Crescendo Rational
               |  Diminuendo Rational | StdLoudness StdLoudness 
               |  Loudness Rational
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data StdLoudness = PPP | PP | P | MP | SF | MF | NF | FF | FFF
-     deriving (Eq, Ord, Show, Enum)
+     deriving (Show, Eq, Ord, Enum)
 
 data Tempo = Ritardando Rational | Accelerando Rational
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Articulation  =  Staccato Rational | Legato Rational 
                    |  Slurred Rational | Tenuto | Marcato | Pedal 
                    |  Fermata | FermataDown | Breath | DownBow 
                    |  UpBow | Harmonic | Pizzicato | LeftPizz 
                    |  BartokPizz | Swell | Wedge | Thumb | Stopped
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data Ornament  =  Trill | Mordent | InvMordent | DoubleMordent
                |  Turn | TrilledTurn | ShortTrill
                |  Arpeggio | ArpeggioUp | ArpeggioDown
                |  Instruction String | Head NoteHead
                |  DiatonicTrans Int
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 
 data NoteHead  =  DiamondHead | SquareHead | XHead | TriangleHead
                |  TremoloHead | SlashHead | ArtHarmonic | NoHead
-     deriving (Eq, Ord, Show)
+     deriving (Show, Eq, Ord)
 \end{spec}}
 \caption{Phrase Attributes}
 \label{fig:phrase-attributes}
@@ -447,15 +460,13 @@ different players.  This is done by exploiting polymorphism to define
 a version of |Music| that in addition to pitch, carries a list of note
 attributes for each individual note:
 
-\pagebreak
-
 \begin{spec}
 data NoteAttribute = 
         Volume  Int          -- MIDI convention: 0=min, 127=max
      |  Fingering Integer
      |  Dynamics String
      |  Params [Double]
-     deriving (Eq, Show)
+     deriving (Show, Eq)
 \end{spec}
 Our goal then is to define a player for music values of type:
 \begin{code}
@@ -488,6 +499,9 @@ respect to performance and notation.  An Euterpean |Player| is a
 four-tuple consisting of a name and three functions: one for
 interpreting notes, one for phrases, and one for producing a properly
 notated score:
+
+\pagebreak
+
 \begin{code}
 data Player a = MkPlayer {  pName         :: PlayerName, 
                             playNote      :: NoteFun a,
@@ -534,6 +548,7 @@ section; in particular, note the calls to |playNote| and
 phrase attributes.
 
 \begin{figure}
+\cbox{\small
 \begin{code}
 defPlayNote ::  (Context (Pitch,[a]) -> a -> Event-> Event)
                 -> NoteFun (Pitch, [a])
@@ -566,7 +581,7 @@ defPasHandler (Art (Staccato x))  =
 defPasHandler (Art (Legato   x))  = 
     map (\e -> e {eDur = x * eDur e})
 defPasHandler _                   = id
-\end{code} 
+\end{code}}
 \caption{Definition of default player |defPlayer|.}
 \label{fig:default-Player}
 \end{figure}
@@ -659,6 +674,8 @@ which after simplification is:
 shortens event times rather than lengthening them.  And a similar but
 simpler strategy explains the behaviors of |Crescendo| and
 |Diminuendo|.
+
+\pagebreak
 
 \section{Putting it all Together}
 
@@ -792,7 +809,7 @@ in G major should yield |e 4 en :+: fs 4 en :+: g 4 en|.
 
 \begin{figure}
 \todo{This code has errors and needs to be fixed.}
-{\small
+\cbox{\small
 \begin{code}
 
 fancyPlayer :: Player (Pitch, [NoteAttribute])

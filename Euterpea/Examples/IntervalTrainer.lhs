@@ -2,14 +2,12 @@
 
 > module Euterpea.Examples.IntervalTrainer where
 
-> import Control.Arrow
-
 > import Euterpea
-> import System.IO.Unsafe (unsafePerformIO)
+> import Euterpea.Experimental (uisfPipeE)
 > import System.Random (randomRIO)
-> import qualified Codec.Midi as Midi
+> import Codec.Midi (Message(ProgramChange))
 
-> import Control.SF.AuxFunctions ((=>>), (->>), (.|.), snapshot, snapshot_)
+> import Control.SF.AuxFunctions ((=>>), (->>), (.|.), snapshot, snapshot_, concatA)
 
 
 > main = runUIEx (600,700) "Interval Trainer" intervalTrainer
@@ -57,8 +55,6 @@ The main UI:
 
 > intervalTrainer :: UISF () ()
 > intervalTrainer = proc _ -> do
->     -- get running time
->     t <- time -< ()
 >     -- MIDI output select:
 >     mo <- setSize (600,90) $ selectOutput -< ()
 >     -- Play note:
@@ -95,10 +91,10 @@ The main UI:
 >     -- User Input:
 >     guesses <- (| (setSize (600,90) . title "Guess the interval") (do
 >         g1 <- leftRight $
->                 mapA $ map (\s -> edge <<< button s) 
+>                 concatA $ map (\s -> edge <<< button s) 
 >                            ["uni","min2","Maj2","min3","Maj3","4th","aug4"] -< repeat ()
 >         g2 <- leftRight $
->                 mapA $ map (\s -> edge <<< button s)
+>                 concatA $ map (\s -> edge <<< button s)
 >                            ["5th","min6","Maj6","min7","Maj7","oct"] -< repeat ()
 >         returnA -< g1++g2) |)
 >     -- edge-detect pushbuttons:
@@ -115,7 +111,7 @@ The main UI:
 >         e `whileIn` s = if s == state then e else Nothing
 >  
 >     -- Random intervals:
->     let randIntE = snapshot_ nextE (maxInt, lowOct, range) =>> mkRandInt
+>     randIntE <- uisfPipeE mkRandInt -< snapshot_ nextE (maxInt, lowOct, range)
 >     interval <- hold (0,0)  -< randIntE
 >     let trigger  = snapshot randIntE (dur, instr) .|.
 >                    snapshot_ repeatE (interval, (dur, instr))
@@ -134,11 +130,11 @@ The main UI:
 >         del0 = f 2 pns dur -- lo note delay only when "hi then lo"
 >         del1 = f 1 pns dur -- hi note delay only when "lo then hi"
 >     -- Random interval & Midi signals:
->     note0 <- vdelay -< (t, del0, (trigger =>> mkNote 0))
->     note1 <- vdelay -< (t, del1, (trigger =>> mkNote 1))
+>     note0 <- vdelay -< (del0, (trigger =>> mkNote 0))
+>     note1 <- vdelay -< (del1, (trigger =>> mkNote 1))
 >     nowE <- now -< ()
 >     let progChan = nowE ->> (map Std $
->                     zipWith Midi.ProgramChange [0,1,2,3,4] [0,4,40,66,73])
+>                     zipWith ProgramChange [0,1,2,3,4] [0,4,40,66,73])
 >         midiMsgs = progChan .|. mergeE (++) note0 note1
 >     -- Display results:
 >     (| leftRight (do
@@ -164,9 +160,9 @@ Auxilliary Functions:
 > showScore c t = show c ++ "/" ++ show t ++ " = " ++ 
 >                 take 5 (show (100 * fromIntegral c / fromIntegral t)) ++ "%"
 
-> mkRandInt :: (Int,Int,Int) -> (Int,Int)
+> mkRandInt :: (Int,Int,Int) -> IO (Int,Int)
 > mkRandInt (maxInt,lowOct,range) = 
->   unsafePerformIO $ do
+>   do
 >     let low = lowOct*12
 >     int  <- randomRIO (0,maxInt) :: IO Int
 >     root <- randomRIO (low, low + range*6 - int) :: IO Int
@@ -186,15 +182,4 @@ Auxilliary Functions:
 at 60 BPM a whole note is 1 sec
 
 ANote :: Channel -> Key -> Velocity -> Time -> MidiMessage
-
-
-> mapA :: Arrow a => [a b c] -> a [b] [c]
-> mapA [] = arr $ const []
-> mapA (sf:sfs) = proc (b:bs) -> do
->     c <- sf -< b
->     cs <- mapA sfs -< bs
->     returnA -< (c:cs)
-
-
-
 

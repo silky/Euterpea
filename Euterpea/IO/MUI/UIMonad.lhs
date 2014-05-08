@@ -6,7 +6,7 @@ by Conal Elliot.
 > module Euterpea.IO.MUI.UIMonad where
 
 > import Euterpea.IO.MUI.SOE
-> import Euterpea.IO.MIDI.MidiIO (Message, DeviceID, Time)
+> import Control.SF.AuxFunctions (Time)
 
 > import Control.Monad.Fix
 > import Control.Concurrent.MonadIO
@@ -26,7 +26,7 @@ earlier widgets and maps input signals to outputs, which consists of 6 parts:
  - and the parametrized output type.
 
 > newtype UI a = UI 
->   { unUI :: (CTX, Focus, Input) -> 
+>   { unUI :: (CTX, Focus, Time, UIEvent) -> 
 >             IO (Layout, DirtyBit, Focus, Action, ControlData, a) }
 
 
@@ -35,20 +35,12 @@ earlier widgets and maps input signals to outputs, which consists of 6 parts:
 ============================================================
 
 > type ControlData = [ThreadId]
-> --type ControlData = (IO (), [ThreadId])
 > nullCD :: ControlData
 > nullCD = []
-> --nullCD = (return (), [])
 
 
 > addThreadID :: ThreadId -> UI ()
-> addThreadID t = UI (\(_,f,_) -> return (nullLayout, False, f, nullAction, [t], ()))
-
-addSeqAction :: a -> UI ()
-addSeqAction v = UI (\(_,f,_) -> return (nullLayout, False, f, nullAction, (seq v $ return (), []), ()))
-
-mergeCD :: ControlData -> ControlData -> ControlData
-mergeCD (s1, t1) (s2, t2) = (s1 >> s2, t1 ++ t2)
+> addThreadID t = UI (\(_,f,_,_) -> return (nullLayout, False, f, nullAction, [t], ()))
 
 > mergeCD :: ControlData -> ControlData -> ControlData
 > mergeCD = (++)
@@ -79,7 +71,6 @@ A rendering context specifies the following:
 > data CTX = CTX 
 >   { flow   :: Flow
 >   , bounds :: Rect
->   , inject :: Input -> IO ()
 >   , isConjoined :: Bool
 >   }
 
@@ -156,18 +147,18 @@ overall layout of the widget that receives this CTX.  Therefore, the
 first layout argument should basically be a sublayout of the second.
 
 > divideCTX :: CTX -> Layout -> Layout -> (CTX, CTX)
-> divideCTX ctx@(CTX a ((x, y), (w, h)) f c) 
+> divideCTX ctx@(CTX a ((x, y), (w, h)) c) 
 >           ~(Layout m n u v minw minh) ~(Layout m' n' u' v' minw' minh') =
 >   if c then (ctx, ctx) else
 >   case a of
->     TopDown   -> (CTX a ((x, y), (w'', h')) f c, 
->                   CTX a ((x, y + h'), (w, h - h')) f c)
->     BottomUp  -> (CTX a ((x, y + h - h'), (w'', h')) f c, 
->                   CTX a ((x, y), (w, h - h')) f c)
->     LeftRight -> (CTX a ((x, y), (w', h'')) f c, 
->                   CTX a ((x + w', y), (w - w', h)) f c)
->     RightLeft -> (CTX a ((x + w - w', y), (w', h'')) f c, 
->                   CTX a ((x, y), (w - w', h)) f c)
+>     TopDown   -> (CTX a ((x, y), (w'', h')) c, 
+>                   CTX a ((x, y + h'), (w, h - h')) c)
+>     BottomUp  -> (CTX a ((x, y + h - h'), (w'', h')) c, 
+>                   CTX a ((x, y), (w, h - h')) c)
+>     LeftRight -> (CTX a ((x, y), (w', h'')) c, 
+>                   CTX a ((x + w', y), (w - w', h)) c)
+>     RightLeft -> (CTX a ((x + w - w', y), (w', h'')) c, 
+>                   CTX a ((x, y), (w - w', h)) c)
 >   where
 >     w' = max minw $ (m * div' (w - u') m' + u)
 >     h' = max minh $ (n * div' (h - v') n' + v)
@@ -194,18 +185,8 @@ Merge two layouts into one.
 
 
 ============================================================
-============= Input, Action, and System State ==============
+================= Action and System State ==================
 ============================================================
-
-Input is a union of user events and Midi events, and in addition,
-a timer event is needed to drive time based computations.
-
-> data Input 
->   = UIEvent Event 
->   | Timer Time 
->   | MidiEvent DeviceID Message
->   | NoEvent
->   deriving Show
 
 Actions include both Graphics and Sound output. Even though both
 are indeed just IO monads, we separate them because Sound output
@@ -222,6 +203,9 @@ next screen refresh.
 > justGraphicAction g = (g, nullSound)
 
 > mergeAction (g, s) (g', s') = (overGraphic g' g, s >> s')
+
+> scissorAction :: CTX -> Action -> Action
+> scissorAction ctx (g, s) = (scissorGraphic (bounds ctx) g, s)
 
 
 The Focus and DirtyBit types are for system state.
@@ -254,22 +238,16 @@ The dirty bit is a bit to indicate if the widget needs to be redrawn.
 ===================== Monadic Instances ====================
 ============================================================
 
-We use Monad compositions to compose two UIs in sequence.
-
-Alternatively we could use Arrows or Applicative Functors to do the
-same, so the choice of Monad here is somewhat arbitary.
-
-> cross f g x = (f x, g x)
-
 > instance Monad UI where
->   return i = UI (\(_,foc,_) -> return (nullLayout, False, foc, nullAction, nullCD, i))
+>   return i = UI (\(_,foc,_,_) -> return (nullLayout, False, foc, nullAction, nullCD, i))
 
->   (UI m) >>= f = UI (\(ctx, foc, inp) -> do 
+>   (UI m) >>= f = UI (\(ctx, foc, t, inp) -> do 
 >     rec let (ctx1, ctx2)      = divideCTX ctx l1 layout
 > --            (ctx2, _)         = divideCTX ctx' l2 l2
->         (l1, db1, foc1, a1, cd1, v1) <- m (ctx1, foc, inp)
->         (l2, db2, foc2, a2, cd2, v2) <- unUI (f v1) (ctx2, foc1, inp)
->         let action            = mergeAction a1 a2
+>         (l1, db1, foc1, a1, cd1, v1) <- m (ctx1, foc, t, inp)
+>         (l2, db2, foc2, a2, cd2, v2) <- unUI (f v1) (ctx2, foc1, t, inp)
+>         let action            = (if l1 == nullLayout || l2 == nullLayout then id 
+>                                  else scissorAction ctx) $ mergeAction a1 a2
 >             layout            = mergeLayout (flow ctx) l1 l2 
 >             cd                = mergeCD cd1 cd2
 >             dirtybit          = ((||) $! db1) $! db2
@@ -281,10 +259,10 @@ level recursion.
 > instance MonadFix UI where
 >   mfix f = UI aux
 >     where
->       aux (ctx, foc, inp) = u
->         where u = do rec (l, db, foc', a, cd, r) <- unUI (f r) (ctx, foc, inp)
+>       aux (ctx, foc, t, inp) = u
+>         where u = do rec (l, db, foc', a, cd, r) <- unUI (f r) (ctx, foc, t, inp)
 >                      return (l, db, foc', a, cd, r)
 
 > instance MonadIO UI where
->   liftIO a = UI (\(_,foc,_) -> a >>= (\v -> return (nullLayout, False, foc, nullAction, nullCD, v)))
+>   liftIO a = UI (\(_,foc,_,_) -> a >>= (\v -> return (nullLayout, False, foc, nullAction, nullCD, v)))
 

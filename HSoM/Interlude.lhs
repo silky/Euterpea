@@ -53,7 +53,7 @@ import Euterpea
 \end{spec} 
 This says that the |Interlude| module is part of the |Examples| folder
 in the overall |Euterpea| library.  In general, these hierarchical
-names correspond to the folder (directory) structure in a particular
+names correspond to the folder (directory) structure of a particular
 implementation.  Similarly, the name of the file containing the module
 is generally the same as the module name, plus the file extension (in
 this case, the name of the file is |Interlude.lhs|).
@@ -109,19 +109,19 @@ they will be introduced as needed in future chapters.
 \epsfysize=7in 
 \epsfbox{pics/ChildSong6.eps}
 }
-\caption{Excerpt from Chick Corea's \emph{Child Song No.\ 6}}
+\caption{Excerpt from Chick Corea's \emph{Children's Songs No.\ 6}}
 \label{fig:childsong6}
 \end{figure*}
 
 \section{Transcribing an Existing Score}
 
 Figure \ref{fig:childsong6} shows the first 28 bars of Chick Corea's
-\emph{Child Song No.\ 6}, written for electric piano.  Analyzing this
-tune explores several basic issues that arise in the transcription of
-an existing score into Euterpea, including repeating phrases, grace
-notes, triplets, tempo, and specifying an instrument.  To begin,
-however, we will define a couple of auxiliary functions to make our
-job easier.
+\emph{Children's Songs No.\ 6}, written for electric piano
+\cite{Corea94}.  Analyzing the structure of this tune explores several
+basic issues that arise in the transcription of an existing score into
+Euterpea, including repeating phrases, grace notes, triplets, tempo,
+and specifying an instrument.  To begin, however, we will define a
+couple of auxiliary functions to make our job easier.
 
 \subsection{Auxiliary Functions}
 
@@ -183,7 +183,7 @@ Finally, a function to add a grace note to a note is defined.  Grace
 notes can approach the principal note from above or below; sometimes
 starting a half-step away, and sometimes a whole step; and having a
 rhythmic interpretation that is to a large extent up to the performer.
-In the case of the six uses of grace notes in \emph{Child Song
+In the case of the six uses of grace notes in \emph{Children's Songs
   No.\ 6}, we will assume that the grace note begins on the downbeat
 of the principal note, and thus its duration will subtract from that
 of the principal note.  We will also assume that the grace note
@@ -279,6 +279,7 @@ with each of the pieces defined in Figure \ref{fig:bars7-28}.  Note that:
 \end{itemize}
 
 \begin{figure}
+\cbox{\small
 \begin{code}
 v2a  =  line [  cs 5 (dhn+dhn), d 5 dhn, 
                 f 5 hn, gs 5 qn, fs 5 (hn+en), g 5 en]     -- bars 7-11
@@ -297,7 +298,7 @@ v2f  =  line [  fs 5 en, a 5 en, b 5 (hn+qn), a 5 en, fs 5 en, e 5 qn,
                 d 5 en, fs 5 en, e 5 hn, d 5 hn, fs 5 qn]  -- bars 21-23
 v2g  =  tempo (3/2) (line [cs 5 en, d 5 en, cs 5 en]) :+: 
         b 4 (3*dhn+hn)                                     -- bars 24-28
-\end{code}
+\end{code}}
 \caption{Bars 7-28}
 \label{fig:bars7-28}
 \end{figure}
@@ -315,7 +316,7 @@ a metronome value of 120.  Therefore the tempo should be scaled by a
 factor of |(dhn/qn)*(69/120)|.
 
 These two observations lead to the final definition of the
-transcription of \emph{Children's Song No.\ 6} into Euterpea:
+transcription of \emph{Children's Songs No.\ 6} into Euterpea:
 \begin{code}
 childSong6 :: Music Pitch
 childSong6 =  let t = (dhn/qn)*(69/120)

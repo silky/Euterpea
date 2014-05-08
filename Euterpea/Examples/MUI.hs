@@ -64,12 +64,11 @@ getDeviceIDs = topDown $
     outA  -< (mi,mo)
 ui6   ::  UISF () ()
 ui6   =   proc _ -> do
-    devid  <- selectOutput -< ()
-    ap     <- title "Absolute Pitch" (hiSlider 1 (0,100) 0) -< ()
+    devid   <- selectOutput -< ()
+    ap      <- title "Absolute Pitch" (hiSlider 1 (0,100) 0) -< ()
     title "Pitch" display -< pitch ap
-    t      <- time -< ()
-    f      <- title "Tempo" (hSlider (1,10) 1) -< ()
-    tick   <- timer -< (t, 1/f)
+    f       <- title "Tempo" (hSlider (1,10) 1) -< ()
+    tick    <- timer -< 1/f
     midiOut -< (devid, fmap (const [ANote 0 ap 100 0.1]) tick)
 
 mui6  = runUI "Pitch Player with Timer" ui6
@@ -111,15 +110,12 @@ popToNote x =  [ANote 0 n 64 0.05]
 
 bifurcateUI :: UISF () ()
 bifurcateUI = proc _ -> do
-    t  <- time -< ()
-    mo <- selectOutput -< ()
-    f  <- title "Frequency" $ withDisplay (hSlider (1, 10) 1) -< ()
-    r  <- title "Growth rate" $ withDisplay (hSlider (2.4, 4.0) 2.4) -< ()
-
-    tick <- timer -< (t, 1.0 / f)
-    pop <- accum 0.1 -< fmap (const (grow r)) tick
-
-    _ <- title "Population" $ display -< pop
+    mo    <- selectOutput -< ()
+    f     <- title "Frequency" $ withDisplay (hSlider (1, 10) 1) -< ()
+    tick  <- timer -< 1/f
+    r     <- title "Growth rate" $ withDisplay (hSlider (2.4, 4.0) 2.4) -< ()
+    pop   <- accum 0.1 -< fmap (const (grow r)) tick
+    _     <- title "Population" $ display -< pop
     midiOut -< (mo, fmap (const (popToNote pop)) tick)
 
 bifurcate = runUIEx (300,500) "Bifurcate!" $ bifurcateUI
@@ -129,12 +125,11 @@ echoUI = proc _ -> do
     mi <- selectInput  -< ()
     mo <- selectOutput -< ()
     m <- midiIn -< mi
-    t <- time -< ()
     r <- title "Decay rate" $ withDisplay (hSlider (0, 0.9) 0.5) -< ()
     f <- title "Echoing frequency" $ withDisplay (hSlider (1, 10) 10) -< ()
 
     rec let m' = removeNull $ mergeE (++) m s
-        s <- vdelay -< (t, 1.0 / f, fmap (mapMaybe (decay 0.1 r)) m')
+        s <- vdelay -< (1/f, fmap (mapMaybe (decay 0.1 r)) m')
 
     midiOut -< (mo, m')
 
